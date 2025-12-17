@@ -1,20 +1,21 @@
 {
-  "name": "simulator-ts",
+  "name": "sol-sim-ts",
   "version": "1.0.0",
   "description": "Solana transaction simulator using litesvm and @solana/kit - TypeScript implementation",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "mcm-runner": "./dist/cli.js"
+    "mcm-runner": "./dist/mcm-runner/cli.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/cli.ts",
-    "start": "node dist/cli.js",
+    "build": "tsup",
+    "dev": "tsx src/mcm-runner/cli.ts",
+    "start": "node dist/mcm-runner/cli.js",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "keywords": [
@@ -28,21 +29,22 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@coral-xyz/borsh": "^0.31.1",
-    "@noble/hashes": "^1.5.0",
-    "@solana/kit": "^2.1.2",
+    "@noble/hashes": "^2.0.1",
+    "@solana/compat": "^5.1.0",
+    "@solana/kit": "^5.1.0",
     "@solana/web3.js": "^1.95.8",
     "litesvm": "^0.4.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.0.3",
     "@typescript-eslint/eslint-plugin": "^8.18.2",
     "@typescript-eslint/parser": "^8.18.2",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.16"
   },
   "engines": {
     "node": ">=18.0.0"

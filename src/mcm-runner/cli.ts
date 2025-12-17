@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { writeFile } from 'fs/promises';
-import { runMcmSimulation, formatReportSummary } from './mcm-runner/index.js';
+import { runMcmSimulation } from './index';
 
 /**
  * Parse command line arguments
@@ -95,23 +95,13 @@ Examples:
  */
 const main = async () => {
   try {
-    const { proposalPath, rpcUrl, mcmProgramId, outputPath, authorityAddress } =
-      parseArgs();
+    const { proposalPath, rpcUrl, mcmProgramId, outputPath, authorityAddress } = parseArgs();
 
     if (!proposalPath) {
       console.error('Error: Proposal path is required\n');
       printHelp();
       process.exit(1);
     }
-
-    console.log('Running MCM simulation...');
-    console.log(`  Proposal: ${proposalPath}`);
-    console.log(`  RPC: ${rpcUrl}`);
-    console.log(`  MCM Program: ${mcmProgramId}`);
-    if (authorityAddress) {
-      console.log(`  Authority: ${authorityAddress}`);
-    }
-    console.log();
 
     // Run simulation
     const report = await runMcmSimulation({
@@ -121,21 +111,20 @@ const main = async () => {
       authorityAddress,
     });
 
-    // Print summary
-    console.log(formatReportSummary(report));
-    console.log();
+    // Print JSON report
+    console.log(JSON.stringify(report, null, 2));
 
     // Save report if output path specified
     if (outputPath) {
       await writeFile(outputPath, JSON.stringify(report, null, 2), 'utf-8');
-      console.log(`Report saved to: ${outputPath}`);
+      console.log(`\nReport saved to: ${outputPath}`);
     }
 
     // Exit with appropriate code
-    const allSuccess = report.instructions.every((ix) => ix.success);
+    const allSuccess = report.instructions.every(ix => ix.success);
     process.exit(allSuccess ? 0 : 1);
   } catch (error) {
-    console.error('Error:', error instanceof Error ? error.message : String(error));
+    console.error('Error:', error);
     process.exit(1);
   }
 };

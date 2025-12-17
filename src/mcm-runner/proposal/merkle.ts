@@ -1,19 +1,14 @@
-import { keccak_256 } from '@noble/hashes/sha3';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 import { getAddressEncoder } from '@solana/kit';
-import type {
-  MerkleProof,
-  Proposal,
-  ProposalInstruction,
-  ProposalWithRoot,
-} from './types.js';
+import type { MerkleProof, Proposal, ProposalInstruction, ProposalWithRoot } from './types';
 
 // Domain separators
-const DOMAIN_SEPARATOR_METADATA = new Uint8Array(keccak_256(
-  new TextEncoder().encode('MANY_CHAIN_MULTI_SIG_DOMAIN_SEPARATOR_METADATA_SOLANA')
-));
-const DOMAIN_SEPARATOR_OP = new Uint8Array(keccak_256(
-  new TextEncoder().encode('MANY_CHAIN_MULTI_SIG_DOMAIN_SEPARATOR_OP_SOLANA')
-));
+const DOMAIN_SEPARATOR_METADATA = new Uint8Array(
+  keccak_256(new TextEncoder().encode('MANY_CHAIN_MULTI_SIG_DOMAIN_SEPARATOR_METADATA_SOLANA'))
+);
+const DOMAIN_SEPARATOR_OP = new Uint8Array(
+  keccak_256(new TextEncoder().encode('MANY_CHAIN_MULTI_SIG_DOMAIN_SEPARATOR_OP_SOLANA'))
+);
 
 /**
  * Left-pad a number to 32 bytes (big-endian)
@@ -21,7 +16,7 @@ const DOMAIN_SEPARATOR_OP = new Uint8Array(keccak_256(
 const padU64To32Bytes = (value: bigint): Uint8Array => {
   const bytes = new Uint8Array(32);
   const view = new DataView(bytes.buffer);
-  view.setBigUint64(24, value, false); // Big-endian, offset 24 (32 - 8)
+  view.setBigUint64(24, value, true); // Little-endian, offset 24 (32 - 8)
   return bytes;
 };
 
@@ -83,10 +78,10 @@ export const hashOperationLeaf = (
     const accBytes = new Uint8Array(addressEncoder.encode(acc.pubkey));
     serializedAccounts.set(accBytes, i * 33);
 
-    // Flags byte: bit 0 = isSigner, bit 1 = isWritable
+    // Flags byte: bit 1 = isSigner (0x02), bit 0 = isWritable (0x01)
     let flags = 0;
-    if (acc.isSigner) flags |= 1;
-    if (acc.isWritable) flags |= 2;
+    if (acc.isSigner) flags |= 0x02;
+    if (acc.isWritable) flags |= 0x01;
     serializedAccounts[i * 33 + 32] = flags;
   }
 
@@ -119,15 +114,13 @@ export const hashOperationLeaf = (
 /**
  * Build merkle tree from leaves and compute root + proofs
  */
-const buildMerkleTree = (
-  leaves: Uint8Array[]
-): { root: Uint8Array; proofs: MerkleProof[] } => {
+const buildMerkleTree = (leaves: Uint8Array[]): { root: Uint8Array; proofs: MerkleProof[] } => {
   if (leaves.length === 0) {
     throw new Error('Cannot build merkle tree with no leaves');
   }
 
   // Build tree bottom-up
-  let currentLevel = leaves.map((leaf) => leaf);
+  let currentLevel = leaves.map(leaf => leaf);
   const tree: Uint8Array[][] = [currentLevel];
 
   while (currentLevel.length > 1) {
@@ -141,9 +134,7 @@ const buildMerkleTree = (
 
         // Sort the pair
         const [first, second] =
-          Buffer.compare(Buffer.from(left), Buffer.from(right)) < 0
-            ? [left, right]
-            : [right, left];
+          Buffer.compare(Buffer.from(left), Buffer.from(right)) < 0 ? [left, right] : [right, left];
 
         const combined = new Uint8Array(first.length + second.length);
         combined.set(first, 0);

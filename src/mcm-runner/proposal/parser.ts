@@ -6,10 +6,17 @@ import type {
   ProposalInstruction,
   AccountMeta,
   RootMetadata,
-} from './types.js';
+} from './types';
 
 /**
  * Parse hex string with 0x prefix to Uint8Array
+ *
+ * Converts a hexadecimal string with 0x prefix (e.g., "0x1234abcd") to a byte array.
+ * Used for parsing multisigId and other hex-encoded fields in proposal JSON.
+ *
+ * @param hex - Hex string with 0x prefix
+ * @returns Byte array representation
+ * @throws Error if string doesn't start with 0x or has odd length
  */
 const parseHex = (hex: string): Uint8Array => {
   if (!hex.startsWith('0x')) {
@@ -32,6 +39,12 @@ const parseHex = (hex: string): Uint8Array => {
 
 /**
  * Parse base64 string to Uint8Array
+ *
+ * Converts a base64-encoded string to a byte array.
+ * Used for parsing instruction data in proposal JSON.
+ *
+ * @param base64 - Base64-encoded string
+ * @returns Byte array representation
  */
 const parseBase64 = (base64: string): Uint8Array => {
   return Uint8Array.from(Buffer.from(base64, 'base64'));
@@ -63,8 +76,7 @@ const validateProposal = (json: ProposalJson): Proposal => {
     );
   }
 
-  const expectedInstructionCount =
-    rootMetadata.postOpCount - rootMetadata.preOpCount;
+  const expectedInstructionCount = rootMetadata.postOpCount - rootMetadata.preOpCount;
 
   if (BigInt(json.instructions.length) !== expectedInstructionCount) {
     throw new Error(
@@ -73,8 +85,8 @@ const validateProposal = (json: ProposalJson): Proposal => {
   }
 
   // Parse instructions
-  const instructions: ProposalInstruction[] = json.instructions.map((ix) => {
-    const accounts: AccountMeta[] = ix.accounts.map((acc) => ({
+  const instructions: ProposalInstruction[] = json.instructions.map(ix => {
+    const accounts: AccountMeta[] = ix.accounts.map(acc => ({
       pubkey: address(acc.pubkey),
       isSigner: acc.isSigner,
       isWritable: acc.isWritable,

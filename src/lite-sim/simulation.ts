@@ -1,5 +1,14 @@
-import type { Address, IInstruction } from '@solana/kit';
-import type { Account } from './types.js';
+import type { Address, Instruction, EncodedAccount } from '@solana/kit';
+
+/**
+ * Payer configuration for a simulation
+ */
+export type PayerConfig = {
+  /** The address that will pay transaction fees */
+  address: Address;
+  /** Optional amount to airdrop to the payer. If undefined, no airdrop is performed. */
+  airdropAmount?: bigint;
+};
 
 /**
  * Simulation trait - Defines the contract for any simulation implementation
@@ -7,27 +16,27 @@ import type { Account } from './types.js';
  * This is the core abstraction that allows different types of simulations
  * (MCM proposals, token transfers, etc.) to use the same simulation framework.
  */
-export interface Simulation {
+export type Simulation = {
   /**
-   * Returns the fee payer's address for a given batch index
+   * Returns the fee payer configuration for a given batch index
    * @param batchIndex - The index of the batch (transaction)
-   * @returns The address that will pay transaction fees
+   * @returns Payer configuration (address and optional airdrop amount)
    */
-  payer(batchIndex: number): Address;
+  payer(batchIndex: number): PayerConfig;
 
   /**
    * Returns all accounts that should be loaded from RPC
    * This includes program accounts, data accounts, etc.
    * @returns Array of account addresses to fetch from the network
    */
-  accounts(): Address[];
+  accountsToLoad(): Address[];
 
   /**
-   * Returns accounts to mock with custom data (overrides RPC data)
+   * Returns accounts to override with custom data (overrides RPC data)
    * Useful for testing scenarios or setting up specific account states
    * @returns Array of tuples [address, account data]
    */
-  mockedAccounts(): Array<[Address, Account]>;
+  accountOverrides(): Array<[Address, EncodedAccount]>;
 
   /**
    * Optional Unix timestamp to set for the Clock sysvar
@@ -41,7 +50,7 @@ export interface Simulation {
    * Each inner array represents a single transaction (atomic batch)
    * @returns Array of transaction batches
    */
-  batches(): IInstruction[][];
+  batches(): Instruction[][];
 
   /**
    * Returns accounts to track for mutations in a given batch
@@ -49,5 +58,5 @@ export interface Simulation {
    * @param batchIndex - The index of the batch (transaction)
    * @returns Set of account addresses to track
    */
-  trackedAccounts(batchIndex: number): Set<Address>;
-}
+  accountsToTrack(batchIndex: number): Set<Address>;
+};

@@ -1,10 +1,28 @@
-import type { Address } from '@solana/kit';
-import type { Account, AccountMutation } from './types.js';
+import type { Address, EncodedAccount, ReadonlyUint8Array } from '@solana/kit';
+
+/**
+ * Account mutation tracking between before/after states
+ */
+export type AccountMutation = {
+  pubkey: Address;
+  existedBefore: boolean;
+  existedAfter: boolean;
+  ownerBefore: Address | null;
+  ownerAfter: Address | null;
+  lamportsBefore: bigint | null;
+  lamportsAfter: bigint | null;
+  dataChanged: boolean;
+  dataBefore: Uint8Array | null;
+  dataAfter: Uint8Array | null;
+};
 
 /**
  * Helper to compare two Uint8Arrays for equality
  */
-function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
+function arraysEqual(
+  a: Uint8Array | ReadonlyUint8Array,
+  b: Uint8Array | ReadonlyUint8Array
+): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
@@ -20,16 +38,16 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
  * @param after - Account state after transaction (or null if deleted)
  * @returns AccountMutation describing the changes
  */
-export function computeMutation(
+function computeMutation(
   pubkey: Address,
-  before: Account | null,
-  after: Account | null
+  before: EncodedAccount | null,
+  after: EncodedAccount | null
 ): AccountMutation {
   const existedBefore = before !== null;
   const existedAfter = after !== null;
 
-  const ownerBefore = before?.owner ?? null;
-  const ownerAfter = after?.owner ?? null;
+  const ownerBefore = before?.programAddress ?? null;
+  const ownerAfter = after?.programAddress ?? null;
 
   const lamportsBefore = before?.lamports ?? null;
   const lamportsAfter = after?.lamports ?? null;
@@ -52,8 +70,8 @@ export function computeMutation(
     lamportsBefore,
     lamportsAfter,
     dataChanged,
-    dataBefore: dataChanged ? (before?.data ?? null) : null,
-    dataAfter: dataChanged ? (after?.data ?? null) : null,
+    dataBefore: dataChanged ? (before ? new Uint8Array(before.data) : null) : null,
+    dataAfter: dataChanged ? (after ? new Uint8Array(after.data) : null) : null,
   };
 }
 
@@ -67,8 +85,8 @@ export function computeMutation(
  */
 export function computeMutations(
   trackedAddresses: Set<Address>,
-  before: Map<Address, Account>,
-  after: Map<Address, Account>
+  before: Map<Address, EncodedAccount>,
+  after: Map<Address, EncodedAccount>
 ): AccountMutation[] {
   const mutations: AccountMutation[] = [];
 

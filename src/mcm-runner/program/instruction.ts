@@ -1,8 +1,7 @@
-import * as borsh from '@coral-xyz/borsh';
-import type { Address, IInstruction, IAccountMeta } from '@solana/kit';
-import { instructionDiscriminator } from './discriminator.js';
-import type { McmPdas } from './pda.js';
-import type { MerkleProof } from '../proposal/types.js';
+import type { Address, Instruction, AccountMeta } from '@solana/kit';
+import { instructionDiscriminator } from './discriminator';
+import type { McmPdas } from './pda';
+import type { MerkleProof } from '../proposal/types';
 
 /**
  * Simple account meta type for input
@@ -24,14 +23,47 @@ export type ExecuteArgs = {
   proof: MerkleProof; // Vec<[u8; 32]>
 };
 
-// Borsh schema for ExecuteArgs
-const ExecuteArgsSchema = borsh.struct([
-  borsh.array(borsh.u8(), 32, 'multisigId'),
-  borsh.u64('chainId'),
-  borsh.u64('nonce'),
-  borsh.vec(borsh.u8(), 'data'),
-  borsh.vec(borsh.array(borsh.u8(), 32), 'proof'),
-]);
+/**
+ * Encode ExecuteArgs manually (Borsh-compatible)
+ */
+const encodeExecuteArgs = (args: ExecuteArgs): Uint8Array => {
+  // Calculate total size
+  // 32 (multisigId) + 8 (chainId) + 8 (nonce) + 4 (data len) + data.length + 4 (proof len) + proof.length * 32
+  const dataLen = args.data.length;
+  const proofLen = args.proof.length;
+  const totalSize = 32 + 8 + 8 + 4 + dataLen + 4 + proofLen * 32;
+
+  const buffer = Buffer.alloc(totalSize);
+  let offset = 0;
+
+  // multisigId (32 bytes)
+  buffer.set(args.multisigId, offset);
+  offset += 32;
+
+  // chainId (u64)
+  buffer.writeBigUInt64LE(args.chainId, offset);
+  offset += 8;
+
+  // nonce (u64)
+  buffer.writeBigUInt64LE(args.nonce, offset);
+  offset += 8;
+
+  // data (Vec<u8>): length (u32) + bytes
+  buffer.writeUInt32LE(dataLen, offset);
+  offset += 4;
+  buffer.set(args.data, offset);
+  offset += dataLen;
+
+  // proof (Vec<[u8; 32]>): length (u32) + array of 32-byte chunks
+  buffer.writeUInt32LE(proofLen, offset);
+  offset += 4;
+  for (const proofElement of args.proof) {
+    buffer.set(proofElement, offset);
+    offset += 32;
+  }
+
+  return new Uint8Array(buffer);
+};
 
 /**
  * Build the execute instruction
@@ -45,9 +77,9 @@ const ExecuteArgsSchema = borsh.struct([
  * @returns Execute instruction
  */
 /**
- * Convert SimpleAccountMeta to IAccountMeta with role
+ * Convert SimpleAccountMeta to AccountMeta with role
  */
-const toIAccountMeta = (meta: SimpleAccountMeta): IAccountMeta => {
+const toAccountMeta = (meta: SimpleAccountMeta): AccountMeta => {
   // Determine role: 0 = Writable, 1 = WritableSigner, 2 = Readonly, 3 = ReadonlySigner
   let role: 0 | 1 | 2 | 3;
   if (meta.isWritable && meta.isSigner) {
@@ -73,26 +105,26 @@ export const buildExecuteInstruction = (params: {
   to: Address;
   remainingAccounts: SimpleAccountMeta[];
   authority: Address;
-}): IInstruction => {
+}): Instruction => {
   const { mcmProgram, pdas, args, to, remainingAccounts, authority } = params;
 
   // Encode instruction data
   const discriminator = instructionDiscriminator('execute');
-  const argsEncoded = ExecuteArgsSchema.encode(args);
+  const argsEncoded = encodeExecuteArgs(args);
 
   const data = new Uint8Array(discriminator.length + argsEncoded.length);
   data.set(discriminator, 0);
   data.set(argsEncoded, discriminator.length);
 
   // Build accounts array
-  const accounts: IAccountMeta[] = [
-    toIAccountMeta({ pubkey: pdas.multisigConfig, isSigner: false, isWritable: false }),
-    toIAccountMeta({ pubkey: pdas.rootMetadata, isSigner: false, isWritable: false }),
-    toIAccountMeta({ pubkey: pdas.expiringRootAndOpCount, isSigner: false, isWritable: true }),
-    toIAccountMeta({ pubkey: to, isSigner: false, isWritable: false }),
-    toIAccountMeta({ pubkey: pdas.multisigSigner, isSigner: false, isWritable: false }),
-    toIAccountMeta({ pubkey: authority, isSigner: true, isWritable: true }),
-    ...remainingAccounts.map(toIAccountMeta),
+  const accounts: AccountMeta[] = [
+    toAccountMeta({ pubkey: pdas.multisigConfig, isSigner: false, isWritable: true }),
+    toAccountMeta({ pubkey: pdas.rootMetadata, isSigner: false, isWritable: false }),
+    toAccountMeta({ pubkey: pdas.expiringRootAndOpCount, isSigner: false, isWritable: true }),
+    toAccountMeta({ pubkey: to, isSigner: false, isWritable: false }),
+    toAccountMeta({ pubkey: pdas.multisigSigner, isSigner: false, isWritable: false }),
+    toAccountMeta({ pubkey: authority, isSigner: true, isWritable: true }),
+    ...remainingAccounts.map(toAccountMeta),
   ];
 
   return {

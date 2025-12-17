@@ -1,5 +1,18 @@
-import type { AccountMutation, BatchResult } from '../litesim/index.js';
-import type { ProposalWithRoot } from './proposal/types.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import type { ReadonlyUint8Array } from '@solana/kit';
+import type { AccountMutation, SimulationResults } from '../lite-sim/index';
+import type { ProposalWithRoot } from './proposal/types';
+
+/**
+ * Account in JSON format
+ */
+export type AccountJson = {
+  address: string;
+  lamports: string; // Stringified bigint
+  dataHash: string; // 0x-prefixed SHA256 hash
+  owner: string;
+  executable: boolean;
+};
 
 /**
  * Account mutation in JSON format
@@ -13,8 +26,8 @@ export type AccountMutationJson = {
   lamportsBefore: string | null; // Stringified bigint
   lamportsAfter: string | null;
   dataChanged: boolean;
-  dataLengthBefore: number | null;
-  dataLengthAfter: number | null;
+  dataBeforeHex: string | null; // 0x-prefixed hex data
+  dataAfterHex: string | null; // 0x-prefixed hex data
 };
 
 /**
@@ -36,24 +49,38 @@ export type SimulationReport = {
   proposalRoot: string; // Hex
   validUntil: number;
   multisigId: string; // 0x-prefixed hex
+  loadedAccounts: AccountJson[];
+  accountOverrides: AccountJson[];
   instructions: InstructionResultJson[];
-};
-
-/**
- * Convert Uint8Array to hex string
- */
-const toHex = (bytes: Uint8Array): string => {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 };
 
 /**
  * Convert Uint8Array to 0x-prefixed hex string
  */
-const to0xHex = (bytes: Uint8Array): string => {
-  return '0x' + toHex(bytes);
+const toHex = (bytes: Uint8Array): `0x${string}` => {
+  return `0x${Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')}`;
 };
+
+/**
+ * Compute SHA256 hash of data and return as 0x-prefixed hex string
+ */
+const hashData = (data: Uint8Array | ReadonlyUint8Array): `0x${string}` => {
+  const hash = sha256(data as Uint8Array);
+  return toHex(hash);
+};
+
+/**
+ * Convert EncodedAccount to JSON format
+ */
+const accountToJson = (account: import('@solana/kit').EncodedAccount): AccountJson => ({
+  address: account.address,
+  lamports: account.lamports.toString(),
+  dataHash: hashData(account.data),
+  owner: account.programAddress,
+  executable: account.executable,
+});
 
 /**
  * Convert AccountMutation to JSON format
@@ -67,24 +94,35 @@ const mutationToJson = (mutation: AccountMutation): AccountMutationJson => ({
   lamportsBefore: mutation.lamportsBefore?.toString() ?? null,
   lamportsAfter: mutation.lamportsAfter?.toString() ?? null,
   dataChanged: mutation.dataChanged,
-  dataLengthBefore: mutation.dataBefore?.length ?? null,
-  dataLengthAfter: mutation.dataAfter?.length ?? null,
+  dataBeforeHex: mutation.dataBefore ? toHex(mutation.dataBefore) : null,
+  dataAfterHex: mutation.dataAfter ? toHex(mutation.dataAfter) : null,
 });
 
 /**
- * Create simulation report from batch results
+ * Create simulation report from simulation results
  *
- * @param results - Batch results from simulator
+ * @param results - Simulation results from simulator
  * @param proposalWithRoot - Proposal with merkle root
  * @returns JSON-serializable simulation report
  */
 export const createSimulationReport = (
-  results: BatchResult[],
+  results: SimulationResults,
   proposalWithRoot: ProposalWithRoot
 ): SimulationReport => {
   const { proposal, root } = proposalWithRoot;
 
-  const instructions: InstructionResultJson[] = results.map((result, i) => {
+  // Convert loaded accounts
+  const loadedAccounts: AccountJson[] = Array.from(results.loadedAccounts.values()).map(
+    accountToJson
+  );
+
+  // Convert account overrides
+  const accountOverrides: AccountJson[] = results.accountOverrides.map(([, account]) =>
+    accountToJson(account)
+  );
+
+  // Convert instruction results
+  const instructions: InstructionResultJson[] = results.batchResults.map((result, i) => {
     const nonce = proposal.rootMetadata.preOpCount + BigInt(i);
     const instruction = proposal.instructions[i];
 
@@ -101,7 +139,9 @@ export const createSimulationReport = (
   return {
     proposalRoot: toHex(root),
     validUntil: proposal.validUntil,
-    multisigId: to0xHex(proposal.multisigId),
+    multisigId: toHex(proposal.multisigId),
+    loadedAccounts,
+    accountOverrides,
     instructions,
   };
 };
@@ -118,7 +158,7 @@ export const getReportSummary = (
   allSuccess: boolean;
 } => {
   const totalInstructions = report.instructions.length;
-  const successCount = report.instructions.filter((ix) => ix.success).length;
+  const successCount = report.instructions.filter(ix => ix.success).length;
   const failureCount = totalInstructions - successCount;
   const allSuccess = successCount === totalInstructions;
 
@@ -136,7 +176,7 @@ export const getReportSummary = (
 export const formatReportSummary = (report: SimulationReport): string => {
   const summary = getReportSummary(report);
 
-  return `
+  let output = `
 Simulation Report:
   Proposal Root: ${report.proposalRoot}
   Multisig ID: ${report.multisigId}
@@ -147,5 +187,30 @@ Simulation Report:
   ✗ Failed: ${summary.failureCount}
 
   Result: ${summary.allSuccess ? '✓ ALL PASSED' : '✗ SOME FAILED'}
-`.trim();
+`;
+
+  // Add instruction details
+  output += '\n\nInstructions:\n';
+  for (const ix of report.instructions) {
+    output += `\n  [${ix.index}] ${ix.success ? '✓' : '✗'} ${ix.programId}`;
+    if (!ix.success && ix.error) {
+      output += `\n      Error: ${ix.error}`;
+    }
+    if (ix.mutations.length > 0) {
+      output += `\n      Mutations: ${ix.mutations.length} account(s) changed`;
+      for (const mut of ix.mutations) {
+        if (mut.dataChanged || mut.lamportsBefore !== mut.lamportsAfter) {
+          output += `\n        - ${mut.pubkey}`;
+          if (mut.lamportsBefore !== mut.lamportsAfter) {
+            output += ` (${mut.lamportsBefore} → ${mut.lamportsAfter} lamports)`;
+          }
+          if (mut.dataChanged) {
+            output += ` [data changed]`;
+          }
+        }
+      }
+    }
+  }
+
+  return output.trim();
 };

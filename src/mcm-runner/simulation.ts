@@ -1,14 +1,16 @@
-import type { Address } from '@solana/kit';
-import type { Account, Simulation } from '../litesim/index.js';
-import { buildExecuteInstruction, type ExecuteArgs } from './program/instruction.js';
-import { deriveMcmPdas } from './program/pda.js';
+import { lamports, type Address, type EncodedAccount } from '@solana/kit';
+import { PublicKey } from '@solana/web3.js';
+import { fromLegacyPublicKey } from '@solana/compat';
+import type { Simulation, PayerConfig } from '../lite-sim';
+import { buildExecuteInstruction, type ExecuteArgs } from './program/instruction';
+import { deriveMcmPdas } from './program/pda';
 import {
   encodeExpiringRootAndOpCount,
   encodeRootMetadata,
   type ExpiringRootAndOpCount,
   type RootMetadata,
-} from './program/accounts.js';
-import type { ProposalWithRoot } from './proposal/types.js';
+} from './program/accounts';
+import type { ProposalWithRoot } from './proposal/types';
 
 /**
  * MCM simulation configuration
@@ -16,7 +18,7 @@ import type { ProposalWithRoot } from './proposal/types.js';
 export type McmSimulationConfig = {
   proposalWithRoot: ProposalWithRoot;
   mcmProgram: Address;
-  authority: Address;
+  authority?: Address; // Optional: if not provided, a random authority will be generated with airdrop
 };
 
 /**
@@ -28,23 +30,24 @@ export type McmSimulationConfig = {
  * @param config - MCM simulation configuration
  * @returns Simulation object ready to be run
  */
-export const createMcmSimulation = async (
-  config: McmSimulationConfig
-): Promise<Simulation> => {
-  const { proposalWithRoot, mcmProgram, authority } = config;
+export const createMcmSimulation = async (config: McmSimulationConfig): Promise<Simulation> => {
+  const { proposalWithRoot, mcmProgram } = config;
   const { proposal, root, operationProofs } = proposalWithRoot;
+
+  // Generate authority if not provided
+  const authority = config.authority ?? fromLegacyPublicKey(PublicKey.unique());
 
   // Derive PDAs
   const pdas = await deriveMcmPdas(mcmProgram, proposal.multisigId);
 
-  // Create mocked accounts
-  const mockedExpiringRoot: ExpiringRootAndOpCount = {
+  // Create account overrides
+  const expiringRootOverride: ExpiringRootAndOpCount = {
     root,
     validUntil: proposal.validUntil,
     opCount: proposal.rootMetadata.preOpCount,
   };
 
-  const mockedRootMetadata: RootMetadata = {
+  const rootMetadataOverride: RootMetadata = {
     chainId: proposal.rootMetadata.chainId,
     multisig: proposal.rootMetadata.multisig,
     preOpCount: proposal.rootMetadata.preOpCount,
@@ -52,28 +55,40 @@ export const createMcmSimulation = async (
     overridePreviousRoot: proposal.rootMetadata.overridePreviousRoot,
   };
 
-  const expiringRootAccount: Account = {
-    lamports: 1_000_000n, // Rent-exempt amount
-    data: encodeExpiringRootAndOpCount(mockedExpiringRoot),
-    owner: mcmProgram,
+  const expiringRootData = encodeExpiringRootAndOpCount(expiringRootOverride);
+  const expiringRootAccount: EncodedAccount = {
+    address: pdas.expiringRootAndOpCount,
+    lamports: lamports(1_000_000n), // Rent-exempt amount
+    data: expiringRootData,
+    programAddress: mcmProgram,
     executable: false,
-    rentEpoch: 0n,
+    space: BigInt(expiringRootData.length),
   };
 
-  const rootMetadataAccount: Account = {
-    lamports: 1_000_000n, // Rent-exempt amount
-    data: encodeRootMetadata(mockedRootMetadata),
-    owner: mcmProgram,
+  const rootMetadataData = encodeRootMetadata(rootMetadataOverride);
+  const rootMetadataAccount: EncodedAccount = {
+    address: pdas.rootMetadata,
+    lamports: lamports(1_000_000n), // Rent-exempt amount
+    data: rootMetadataData,
+    programAddress: mcmProgram,
     executable: false,
-    rentEpoch: 0n,
+    space: BigInt(rootMetadataData.length),
   };
 
   // Build the Simulation object
   return {
-    payer: () => authority,
+    payer: (): PayerConfig => ({
+      address: authority,
+      airdropAmount: !config.authority ? 100_000_000_000n : undefined, // Airdrop only if authority not provided
+    }),
 
-    accounts: () => {
+    accountsToLoad: () => {
       const accounts: Address[] = [mcmProgram, pdas.multisigConfig, pdas.multisigSigner];
+
+      // Only load authority from RPC if it was explicitly provided
+      if (config.authority) {
+        accounts.push(authority);
+      }
 
       // Add all program IDs and accounts from instructions
       for (const ix of proposal.instructions) {
@@ -87,7 +102,7 @@ export const createMcmSimulation = async (
       return Array.from(new Set(accounts));
     },
 
-    mockedAccounts: () => [
+    accountOverrides: () => [
       [pdas.expiringRootAndOpCount, expiringRootAccount],
       [pdas.rootMetadata, rootMetadataAccount],
     ],
@@ -114,7 +129,7 @@ export const createMcmSimulation = async (
           pdas,
           args,
           to: ix.programId,
-          remainingAccounts: ix.accounts.map((acc) => ({
+          remainingAccounts: ix.accounts.map(acc => ({
             pubkey: acc.pubkey,
             isSigner: acc.isSigner,
             isWritable: acc.isWritable,
@@ -126,11 +141,12 @@ export const createMcmSimulation = async (
       });
     },
 
-    trackedAccounts: (batchIndex) => {
+    accountsToTrack: batchIndex => {
       const tracked = new Set<Address>([
         pdas.multisigConfig,
         pdas.rootMetadata,
         pdas.expiringRootAndOpCount,
+        authority, // Track fee payer to capture transaction fees
       ]);
 
       // Add accounts from current instruction

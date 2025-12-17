@@ -1,6 +1,5 @@
-import * as borsh from '@coral-xyz/borsh';
-import type { Address } from '@solana/kit';
-import { accountDiscriminator } from './discriminator.js';
+import { getAddressCodec, type Address } from '@solana/kit';
+import { accountDiscriminator } from './discriminator';
 
 /**
  * ExpiringRootAndOpCount account data (52 bytes total)
@@ -32,33 +31,21 @@ export type RootMetadata = {
   overridePreviousRoot: boolean;
 };
 
-// Borsh schemas
-const ExpiringRootAndOpCountSchema = borsh.struct([
-  borsh.array(borsh.u8(), 32, 'root'),
-  borsh.u32('validUntil'),
-  borsh.u64('opCount'),
-]);
-
-const RootMetadataSchema = borsh.struct([
-  borsh.u64('chainId'),
-  borsh.publicKey('multisig'),
-  borsh.u64('preOpCount'),
-  borsh.u64('postOpCount'),
-  borsh.bool('overridePreviousRoot'),
-]);
-
 /**
  * Encode ExpiringRootAndOpCount to bytes (with discriminator)
  */
-export const encodeExpiringRootAndOpCount = (
-  data: ExpiringRootAndOpCount
-): Uint8Array => {
+export const encodeExpiringRootAndOpCount = (data: ExpiringRootAndOpCount): Uint8Array => {
   const discriminator = accountDiscriminator('ExpiringRootAndOpCount');
-  const encoded = ExpiringRootAndOpCountSchema.encode(data);
 
-  const result = new Uint8Array(discriminator.length + encoded.length);
+  // Manually encode: 32 bytes root + 4 bytes u32 + 8 bytes u64
+  const buffer = Buffer.alloc(32 + 4 + 8);
+  buffer.set(data.root, 0);
+  buffer.writeUInt32LE(data.validUntil, 32);
+  buffer.writeBigUInt64LE(data.opCount, 36);
+
+  const result = new Uint8Array(discriminator.length + buffer.length);
   result.set(discriminator, 0);
-  result.set(encoded, discriminator.length);
+  result.set(buffer, discriminator.length);
 
   return result;
 };
@@ -66,12 +53,15 @@ export const encodeExpiringRootAndOpCount = (
 /**
  * Decode ExpiringRootAndOpCount from bytes (expects discriminator)
  */
-export const decodeExpiringRootAndOpCount = (
-  bytes: Uint8Array
-): ExpiringRootAndOpCount => {
+export const decodeExpiringRootAndOpCount = (bytes: Uint8Array): ExpiringRootAndOpCount => {
   // Skip discriminator (first 8 bytes)
-  const data = bytes.slice(8);
-  return ExpiringRootAndOpCountSchema.decode(data) as ExpiringRootAndOpCount;
+  const buffer = Buffer.from(bytes.slice(8));
+
+  return {
+    root: new Uint8Array(buffer.subarray(0, 32)),
+    validUntil: buffer.readUInt32LE(32),
+    opCount: buffer.readBigUInt64LE(36),
+  };
 };
 
 /**
@@ -79,11 +69,29 @@ export const decodeExpiringRootAndOpCount = (
  */
 export const encodeRootMetadata = (data: RootMetadata): Uint8Array => {
   const discriminator = accountDiscriminator('RootMetadata');
-  const encoded = RootMetadataSchema.encode(data);
+  const addressCodec = getAddressCodec();
 
-  const result = new Uint8Array(discriminator.length + encoded.length);
+  // Manually encode: 8 bytes u64 + 32 bytes pubkey + 8 bytes u64 + 8 bytes u64 + 1 byte bool
+  const buffer = Buffer.alloc(8 + 32 + 8 + 8 + 1);
+  let offset = 0;
+
+  buffer.writeBigUInt64LE(data.chainId, offset);
+  offset += 8;
+
+  buffer.set(addressCodec.encode(data.multisig), offset);
+  offset += 32;
+
+  buffer.writeBigUInt64LE(data.preOpCount, offset);
+  offset += 8;
+
+  buffer.writeBigUInt64LE(data.postOpCount, offset);
+  offset += 8;
+
+  buffer.writeUInt8(data.overridePreviousRoot ? 1 : 0, offset);
+
+  const result = new Uint8Array(discriminator.length + buffer.length);
   result.set(discriminator, 0);
-  result.set(encoded, discriminator.length);
+  result.set(buffer, discriminator.length);
 
   return result;
 };
@@ -93,6 +101,30 @@ export const encodeRootMetadata = (data: RootMetadata): Uint8Array => {
  */
 export const decodeRootMetadata = (bytes: Uint8Array): RootMetadata => {
   // Skip discriminator (first 8 bytes)
-  const data = bytes.slice(8);
-  return RootMetadataSchema.decode(data) as RootMetadata;
+  const buffer = Buffer.from(bytes.slice(8));
+  const addressCodec = getAddressCodec();
+  let offset = 0;
+
+  const chainId = buffer.readBigUInt64LE(offset);
+  offset += 8;
+
+  const multisigBytes = buffer.subarray(offset, offset + 32);
+  const multisig = addressCodec.decode(multisigBytes);
+  offset += 32;
+
+  const preOpCount = buffer.readBigUInt64LE(offset);
+  offset += 8;
+
+  const postOpCount = buffer.readBigUInt64LE(offset);
+  offset += 8;
+
+  const overridePreviousRoot = buffer.readUInt8(offset) !== 0;
+
+  return {
+    chainId,
+    multisig,
+    preOpCount,
+    postOpCount,
+    overridePreviousRoot,
+  };
 };

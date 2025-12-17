@@ -1,79 +1,40 @@
 /**
  * mcm-runner - MCM (Multi-Chain Multisig) proposal simulator
  *
- * Simulates the execution of MCM proposals on Solana using litesim.
+ * Simulates the execution of MCM proposals on Solana using lite-sim.
  */
 
-// Program types
-export type {
-  ExpiringRootAndOpCount,
-  RootMetadata,
-} from './program/accounts.js';
-
-export {
-  encodeExpiringRootAndOpCount,
-  decodeExpiringRootAndOpCount,
-  encodeRootMetadata,
-  decodeRootMetadata,
-} from './program/accounts.js';
-
-export {
-  accountDiscriminator,
-  instructionDiscriminator,
-} from './program/discriminator.js';
-
-export type { McmPdas } from './program/pda.js';
-export { deriveMcmPdas } from './program/pda.js';
-
-export type { ExecuteArgs } from './program/instruction.js';
-export { buildExecuteInstruction } from './program/instruction.js';
-
-// Proposal types
-export type {
-  AccountMeta,
-  ProposalInstruction,
-  RootMetadata as ProposalRootMetadata,
-  Proposal,
-  MerkleProof,
-  ProposalWithRoot,
-  ProposalJson,
-  ProposalInstructionJson,
-  AccountMetaJson,
-  RootMetadataJson,
-} from './proposal/types.js';
-
-export {
-  hashMetadataLeaf,
-  hashOperationLeaf,
-  computeMerkleRoot,
-} from './proposal/merkle.js';
-
-export { loadProposal } from './proposal/parser.js';
-
-// Simulation
-export type { McmSimulationConfig } from './simulation.js';
-export { createMcmSimulation } from './simulation.js';
-
-// Report
-export type {
-  AccountMutationJson,
-  InstructionResultJson,
-  SimulationReport,
-} from './report.js';
-
-export {
-  createSimulationReport,
-  getReportSummary,
-  formatReportSummary,
-} from './report.js';
-
-// Main entry point - Run complete MCM simulation
 import { address } from '@solana/kit';
-import { createSimulator, runSimulation } from '../litesim/index.js';
-import { loadProposal } from './proposal/parser.js';
-import { computeMerkleRoot } from './proposal/merkle.js';
-import { createMcmSimulation } from './simulation.js';
-import { createSimulationReport, type SimulationReport } from './report.js';
+import { createSimulator, runSimulation } from '../lite-sim/index';
+import { loadProposal } from './proposal/parser';
+import { computeMerkleRoot } from './proposal/merkle';
+import { createMcmSimulation } from './simulation';
+import { createSimulationReport, type SimulationReport } from './report';
+
+// Public API - Report types
+export type { AccountMutationJson, InstructionResultJson, SimulationReport } from './report';
+
+// Public API - Proposal types
+export type {
+  Proposal,
+  ProposalWithRoot,
+  ProposalInstruction,
+  AccountMeta,
+  MerkleProof,
+} from './proposal/types';
+
+// Public API - Simulation types
+export type { McmSimulationConfig } from './simulation';
+
+// Public API - Report functions
+export { createSimulationReport, formatReportSummary } from './report';
+
+// Public API - Proposal functions
+export { loadProposal } from './proposal/parser';
+export { computeMerkleRoot, hashMetadataLeaf, hashOperationLeaf } from './proposal/merkle';
+
+// Public API - Simulation functions
+export { createMcmSimulation } from './simulation';
 
 /**
  * Complete MCM simulation configuration
@@ -106,15 +67,12 @@ export const runMcmSimulation = async (
 
   // Parse addresses
   const mcmProgram = address(config.mcmProgramId);
-  const authority = config.authorityAddress
-    ? address(config.authorityAddress)
-    : address('11111111111111111111111111111111'); // Default
 
   // Create simulation
   const simulation = await createMcmSimulation({
     proposalWithRoot,
     mcmProgram,
-    authority,
+    ...(config.authorityAddress && { authority: address(config.authorityAddress) }),
   });
 
   // Create simulator and run
