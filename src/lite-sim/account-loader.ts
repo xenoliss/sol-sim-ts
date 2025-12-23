@@ -1,7 +1,6 @@
 import {
   address,
   assertAccountExists,
-  assertAccountsExist,
   createSolanaRpc,
   fetchEncodedAccount,
   fetchEncodedAccounts,
@@ -60,12 +59,14 @@ const fetchAccounts = async (
   // Fetch all accounts in a single batch RPC call
   const maybeAccounts = await fetchEncodedAccounts(client.rpc, pubkeys);
 
-  // Assert all accounts exist (throws if any is missing)
-  assertAccountsExist(maybeAccounts);
-
-  // All accounts exist, TypeScript now knows they're all valid
+  // Only set existing accounts
   for (let i = 0; i < maybeAccounts.length; i++) {
-    accounts.set(pubkeys[i], maybeAccounts[i]);
+    const maybeAccount = maybeAccounts[i];
+    if (!maybeAccount.exists) {
+      continue;
+    }
+
+    accounts.set(pubkeys[i], maybeAccount);
   }
 
   return accounts;
